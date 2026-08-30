@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Book an Appointment</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page">
+    <header class="page-header">
+      <h1 id="business-name">Book an Appointment</h1>
+      <p class="subtitle">Pick a service, then a time that works for you.</p>
+    </header>
+
+    <div class="booking-flow" id="booking-flow">
+
+      <!-- Step 1: choose a service -->
+      <section class="step" id="step-service" data-step="1">
+        <div class="step-label"><span class="step-num">1</span> Choose a service</div>
+        <div id="service-list" class="service-list" aria-live="polite">
+          <p class="loading">Loading services…</p>
+        </div>
+      </section>
+
+      <!-- Step 2: choose a date + time -->
+      <section class="step" id="step-time" data-step="2" hidden>
+        <div class="step-label"><span class="step-num">2</span> Choose a date &amp; time</div>
+        <div class="date-nav">
+          <button id="prev-day" class="nav-btn" aria-label="Previous day">‹</button>
+          <div id="current-date" class="current-date"></div>
+          <button id="next-day" class="nav-btn" aria-label="Next day">›</button>
+        </div>
+        <div id="slot-list" class="slot-list" aria-live="polite"></div>
+      </section>
+
+      <!-- Step 3: your details -->
+      <section class="step" id="step-details" data-step="3" hidden>
+        <div class="step-label"><span class="step-num">3</span> Your details</div>
+        <form id="booking-form" novalidate>
+          <div class="summary-box" id="booking-summary"></div>
+
+          <label for="name">Name</label>
+          <input type="text" id="name" name="name" required autocomplete="name">
+
+          <label for="email">Email</label>
+          <input type="email" id="email" name="email" required autocomplete="email">
+
+          <label for="phone">Phone <span class="optional">(optional)</span></label>
+          <input type="tel" id="phone" name="phone" autocomplete="tel">
+
+          <label for="notes">Notes <span class="optional">(optional)</span></label>
+          <textarea id="notes" name="notes" rows="3"></textarea>
+
+          <div id="form-error" class="form-error" role="alert" hidden></div>
+
+          <button type="submit" id="submit-btn" class="primary-btn">Confirm Booking</button>
+        </form>
+      </section>
+
+      <!-- Confirmation -->
+      <section class="step" id="step-confirmed" data-step="4" hidden>
+        <div class="confirm-icon">✓</div>
+        <h2>You're booked in</h2>
+        <p id="confirm-details" class="confirm-details"></p>
+        <p class="confirm-note">A confirmation has been sent to your email.</p>
+        <button id="book-another" class="secondary-btn">Book another appointment</button>
+      </section>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
