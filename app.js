@@ -68,7 +68,7 @@ function getTimezoneOffsetMinutes(date, timeZone) {
 async function loadServices() {
   const { data, error } = await db
     .from('services')
-    .select('id, name, duration_minutes, price_pence')
+    .select('id, name, duration_minutes, price_pence, max_people')
     .eq('active', true)
     .order('duration_minutes', { ascending: true });
 
@@ -94,7 +94,7 @@ async function loadServices() {
         <div class="service-name">${escapeHtml(service.name)}</div>
         <div class="service-meta">${service.duration_minutes} min</div>
       </div>
-      ${service.price_pence != null ? `<div class="service-price">£${(service.price_pence / 100).toFixed(2)}</div>` : ''}
+      ${service.price_pence != null ? `<div class="service-price">£${(service.price_pence / 100).toFixed(2)}${service.max_people > 1 ? '<span style="font-weight:400;font-size:0.78em;">/person</span>' : ''}</div>` : ''}
     `;
     btn.addEventListener('click', () => selectService(service, btn));
     list.appendChild(btn);
@@ -185,8 +185,33 @@ function selectService(service, btnEl) {
   document.getElementById('step-details').hidden = true;
   document.getElementById('step-confirmed').hidden = true;
   state.selectedSlot = null;
+  populateNumPeople(service);
   renderDay();
   document.getElementById('step-time').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function populateNumPeople(service) {
+  const select = document.getElementById('num-people');
+  const label = document.getElementById('num-people-label');
+  const max = service.max_people || 1;
+
+  select.innerHTML = '';
+  for (let n = 1; n <= max; n++) {
+    const opt = document.createElement('option');
+    opt.value = n;
+    opt.textContent = n === 1 ? '1 person' : `${n} people`;
+    select.appendChild(opt);
+  }
+
+  // No point showing a selector for a service that only ever fits one person.
+  const show = max > 1;
+  select.hidden = !show;
+  label.hidden = !show;
+}
+
+function currentNumPeople() {
+  const select = document.getElementById('num-people');
+  return select.hidden ? 1 : Number(select.value || 1);
 }
 
 async function renderDay() {
@@ -222,15 +247,33 @@ function selectSlot(slot, btnEl) {
   document.querySelectorAll('.slot-btn').forEach(el => el.classList.remove('selected'));
   btnEl.classList.add('selected');
 
-  const summary = document.getElementById('booking-summary');
-  summary.innerHTML = `
-    <strong>${escapeHtml(state.selectedService.name)}</strong><br>
-    ${formatDateHeading(state.currentDate)} at ${formatTime(slot.start)}
-    (${state.selectedService.duration_minutes} min)
-  `;
+  renderBookingSummary();
   document.getElementById('step-details').hidden = false;
   document.getElementById('step-details').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
+
+function renderBookingSummary() {
+  if (!state.selectedSlot) return;
+  const service = state.selectedService;
+  const n = currentNumPeople();
+  const summary = document.getElementById('booking-summary');
+
+  let priceLine = '';
+  if (service.price_pence != null) {
+    const total = (service.price_pence * n / 100).toFixed(2);
+    priceLine = n > 1
+      ? `<br>£${(service.price_pence / 100).toFixed(2)} × ${n} people = £${total}`
+      : `<br>£${total}`;
+  }
+
+  summary.innerHTML = `
+    <strong>${escapeHtml(service.name)}</strong><br>
+    ${formatDateHeading(state.currentDate)} at ${formatTime(state.selectedSlot.start)}
+    (${service.duration_minutes} min)${priceLine}
+  `;
+}
+
+document.getElementById('num-people').addEventListener('change', renderBookingSummary);
 
 document.getElementById('prev-day').addEventListener('click', () => {
   const todayStr = isoDate(startOfToday());
@@ -274,6 +317,7 @@ document.getElementById('booking-form').addEventListener('submit', async (e) => 
     p_customer_phone: form.phone.value.trim() || null,
     p_starts_at: state.selectedSlot.start.toISOString(),
     p_notes: form.notes.value.trim() || null,
+    p_num_people: currentNumPeople(),
   });
 
   submitBtn.disabled = false;
@@ -302,9 +346,11 @@ function showConfirmation(email) {
   document.getElementById('step-time').hidden = true;
   document.getElementById('step-details').hidden = true;
 
+  const n = currentNumPeople();
   const confirmed = document.getElementById('step-confirmed');
   document.getElementById('confirm-details').textContent =
-    `${state.selectedService.name} — ${formatDateHeading(state.currentDate)} at ${formatTime(state.selectedSlot.start)}`;
+    `${state.selectedService.name} — ${formatDateHeading(state.currentDate)} at ${formatTime(state.selectedSlot.start)}`
+    + (n > 1 ? ` (${n} people)` : '');
   confirmed.hidden = false;
 }
 

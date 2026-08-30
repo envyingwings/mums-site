@@ -68,7 +68,7 @@ async function loadBookings() {
 
   let query = db
     .from('bookings')
-    .select('id, customer_name, customer_email, customer_phone, starts_at, ends_at, status, notes, services(name)')
+    .select('id, customer_name, customer_email, customer_phone, starts_at, ends_at, num_people, total_price_pence, status, notes, services(name)')
     .order('starts_at', { ascending: true });
 
   if (currentFilter === 'upcoming') {
@@ -90,7 +90,7 @@ async function loadBookings() {
   const rows = data.map(b => `
     <tr class="${b.status === 'cancelled' ? 'status-cancelled' : ''}">
       <td>${fmt(b.starts_at)}</td>
-      <td>${b.services?.name || '—'}</td>
+      <td>${b.services?.name || '—'}${b.num_people > 1 ? `<br><span style="color:var(--ink-soft)">${b.num_people} people</span>` : ''}${b.total_price_pence != null ? `<br><span style="color:var(--ink-soft)">£${(b.total_price_pence / 100).toFixed(2)}</span>` : ''}</td>
       <td>${escapeHtml(b.customer_name)}<br><span style="color:var(--ink-soft)">${escapeHtml(b.customer_email)}</span>${b.customer_phone ? `<br><span style="color:var(--ink-soft)">${escapeHtml(b.customer_phone)}</span>` : ''}</td>
       <td>${b.notes ? escapeHtml(b.notes) : '—'}</td>
       <td>${b.status === 'confirmed' ? `<button class="cancel-btn" data-id="${b.id}">Cancel</button>` : 'Cancelled'}</td>
