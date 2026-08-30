@@ -23,6 +23,16 @@
   .block-slot input { width: auto; margin: 0; }
   .block-slot.checked { background: var(--accent-soft); border-color: var(--accent); }
   #avail-blocks-wrap.disabled { opacity: 0.4; pointer-events: none; }
+  .count-badge { background: var(--danger); color: white; border-radius: 999px; padding: 0.05rem 0.5rem; font-size: 0.75rem; margin-left: 0.3rem; }
+  .request-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; margin-bottom: 0.75rem; background: var(--surface); }
+  .request-when { font-weight: 600; margin-bottom: 0.2rem; }
+  .request-meta { color: var(--ink-soft); font-size: 0.88rem; margin-bottom: 0.6rem; }
+  .request-conflict { background: #fdecea; color: var(--danger); border-radius: 6px; padding: 0.5rem 0.7rem; font-size: 0.85rem; margin-bottom: 0.6rem; }
+  .request-actions { display: flex; gap: 0.5rem; }
+  .confirm-btn { flex: 1; background: var(--accent); color: white; border: none; border-radius: 8px; padding: 0.55rem; font: inherit; font-weight: 600; cursor: pointer; }
+  .deny-btn { flex: 1; background: none; border: 1px solid var(--danger); color: var(--danger); border-radius: 8px; padding: 0.55rem; font: inherit; font-weight: 600; cursor: pointer; }
+  .confirm-btn:disabled, .deny-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .email-notice { background: var(--accent-soft); color: var(--ink); border-radius: 8px; padding: 0.7rem 0.9rem; font-size: 0.85rem; margin-bottom: 1rem; }
 </style>
 </head>
 <body>
@@ -46,18 +56,26 @@
       </header>
 
       <div class="tabbar" id="page-tabbar">
-        <button class="tab-btn active" data-page="bookings">Bookings</button>
+        <button class="tab-btn active" data-page="requests">Requests <span id="requests-count-badge" class="count-badge" hidden></span></button>
+        <button class="tab-btn" data-page="bookings">Bookings</button>
         <button class="tab-btn" data-page="availability">Availability</button>
       </div>
 
-      <div id="page-bookings">
+      <div id="page-requests">
+        <p class="email-notice">Email isn't wired up yet — when it works, it'll send an email to you and a request-confirmed email to the customer. Nothing is booked until you confirm a request here.</p>
+        <div id="requests-list"><p class="loading">Loading requests…</p></div>
+      </div>
+
+      <div id="page-bookings" hidden>
         <div class="tabbar">
           <button class="tab-btn active" data-filter="upcoming">Upcoming</button>
           <button class="tab-btn" data-filter="all">All</button>
           <button class="tab-btn" data-filter="cancelled">Cancelled</button>
         </div>
+        <button id="clear-cancelled-btn" class="secondary-btn" style="margin-bottom:1rem;" hidden>Clear all cancelled</button>
         <div id="bookings-table"><p class="loading">Loading bookings…</p></div>
       </div>
+
 
       <div id="page-availability" hidden>
         <div class="step">
