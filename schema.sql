@@ -29,6 +29,20 @@ create table closed_dates (
   reason text
 );
 
+-- Specific time ranges you're unavailable on a given date, without closing
+-- the whole day (e.g. blocked 12:00-13:00 for lunch, or 14:00-16:00 for
+-- an appointment elsewhere). A whole day off should use closed_dates
+-- instead — this table is for partial-day blocks only.
+create table blocked_periods (
+  id uuid primary key default gen_random_uuid(),
+  date date not null,
+  start_time time not null,
+  end_time time not null,
+  reason text,
+  check (end_time > start_time)
+);
+create index blocked_periods_date_idx on blocked_periods (date);
+
 -- Bookings
 create table bookings (
   id uuid primary key default gen_random_uuid(),
@@ -73,6 +87,8 @@ declare
   v_duration int;
   v_ends_at timestamptz;
   v_booking bookings;
+  v_tz text := 'Europe/London'; -- keep in sync with BUSINESS_TIMEZONE in config.js
+  v_local_date date;
 begin
   select duration_minutes into v_duration from services where id = p_service_id and active = true;
   if v_duration is null then
@@ -80,6 +96,24 @@ begin
   end if;
 
   v_ends_at := p_starts_at + (v_duration || ' minutes')::interval;
+  v_local_date := (p_starts_at at time zone v_tz)::date;
+
+  -- Reject if the business is closed all day on this date.
+  if exists (select 1 from closed_dates where date = v_local_date) then
+    raise exception 'That date is not available — please pick another day.';
+  end if;
+
+  -- Reject if this slot overlaps an admin-set partial-day block.
+  if exists (
+    select 1 from blocked_periods bp
+    where bp.date = v_local_date
+      and (bp.start_time, bp.end_time) overlaps (
+        (p_starts_at at time zone v_tz)::time,
+        (v_ends_at at time zone v_tz)::time
+      )
+  ) then
+    raise exception 'That time was just blocked off — please pick another time.';
+  end if;
 
   -- The exclusion constraint on the table will reject this insert
   -- with a unique_violation-style error if it overlaps an existing
@@ -102,6 +136,7 @@ $$;
 alter table services enable row level security;
 alter table working_hours enable row level security;
 alter table closed_dates enable row level security;
+alter table blocked_periods enable row level security;
 alter table bookings enable row level security;
 
 -- Public (anon) can read active services and hours/closures — needed to show availability
@@ -112,6 +147,9 @@ create policy "public can read working hours" on working_hours
   for select using (true);
 
 create policy "public can read closed dates" on closed_dates
+  for select using (true);
+
+create policy "public can read blocked periods" on blocked_periods
   for select using (true);
 
 -- No public select policy on `bookings` itself — anon users cannot read
@@ -140,6 +178,9 @@ create policy "admin full access hours" on working_hours
   for all using (auth.role() = 'authenticated');
 
 create policy "admin full access closed" on closed_dates
+  for all using (auth.role() = 'authenticated');
+
+create policy "admin full access blocked periods" on blocked_periods
   for all using (auth.role() = 'authenticated');
 
 create policy "admin full access bookings" on bookings

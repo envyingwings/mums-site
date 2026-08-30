@@ -13,6 +13,7 @@ const state = {
   workingHours: [],   // [{ day_of_week, start_time, end_time }]
   closedDates: [],    // ['2026-12-25', ...]
   bookedSlots: [],     // [{ starts_at, ends_at }] for the currently loaded window
+  blockedPeriods: [],  // [{ start: Date, end: Date }] for the currently loaded day
   selectedSlot: null,  // { start: Date, end: Date }
 };
 
@@ -127,6 +128,23 @@ async function loadBookedSlotsForDay(day) {
   state.bookedSlots = data.map(r => ({ start: new Date(r.starts_at), end: new Date(r.ends_at) }));
 }
 
+async function loadBlockedPeriodsForDay(day) {
+  const dateStr = isoDate(day);
+  const { data, error } = await db
+    .from('blocked_periods')
+    .select('start_time, end_time')
+    .eq('date', dateStr);
+  if (error) {
+    console.error(error);
+    state.blockedPeriods = [];
+    return;
+  }
+  state.blockedPeriods = data.map(r => ({
+    start: dateAtTime(day, r.start_time.slice(0, 5)),
+    end: dateAtTime(day, r.end_time.slice(0, 5)),
+  }));
+}
+
 // ---------- slot computation ----------
 
 function computeAvailableSlots(day, durationMinutes) {
@@ -147,7 +165,8 @@ function computeAvailableSlots(day, durationMinutes) {
     const slotEnd = new Date(t.getTime() + durationMinutes * 60000);
     if (t < minStart) continue;
 
-    const overlaps = state.bookedSlots.some(b => t < b.end && slotEnd > b.start);
+    const overlaps = state.bookedSlots.some(b => t < b.end && slotEnd > b.start)
+      || state.blockedPeriods.some(b => t < b.end && slotEnd > b.start);
     if (overlaps) continue;
 
     slots.push({ start: t, end: slotEnd });
@@ -179,6 +198,7 @@ async function renderDay() {
   document.getElementById('prev-day').disabled = isoDate(state.currentDate) <= todayStr;
 
   await loadBookedSlotsForDay(state.currentDate);
+  await loadBlockedPeriodsForDay(state.currentDate);
   const slots = computeAvailableSlots(state.currentDate, state.selectedService.duration_minutes);
 
   if (!slots.length) {
