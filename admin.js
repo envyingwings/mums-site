@@ -14,7 +14,7 @@ async function checkSession() {
   if (session) {
     document.getElementById('login-box').hidden = true;
     document.getElementById('admin-panel').hidden = false;
-    loadBookings();
+    loadRequests();
   } else {
     document.getElementById('login-box').hidden = false;
     document.getElementById('admin-panel').hidden = true;
@@ -56,8 +56,11 @@ document.querySelectorAll('#page-tabbar .tab-btn').forEach(btn => {
     document.querySelectorAll('#page-tabbar .tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const page = btn.dataset.page;
+    document.getElementById('page-requests').hidden = page !== 'requests';
     document.getElementById('page-bookings').hidden = page !== 'bookings';
     document.getElementById('page-availability').hidden = page !== 'availability';
+    if (page === 'requests') loadRequests();
+    if (page === 'bookings') loadBookings();
     if (page === 'availability') loadAvailabilityDay();
   });
 });
@@ -74,8 +77,10 @@ async function loadBookings() {
   if (currentFilter === 'upcoming') {
     query = query.eq('status', 'confirmed').gte('starts_at', new Date().toISOString());
   } else if (currentFilter === 'cancelled') {
-    query = query.eq('status', 'cancelled');
+    query = query.in('status', ['cancelled', 'denied']);
   }
+
+  document.getElementById('clear-cancelled-btn').hidden = currentFilter !== 'cancelled';
 
   const { data, error } = await query;
   if (error) {
@@ -88,12 +93,12 @@ async function loadBookings() {
   }
 
   const rows = data.map(b => `
-    <tr class="${b.status === 'cancelled' ? 'status-cancelled' : ''}">
+    <tr class="${b.status === 'cancelled' || b.status === 'denied' ? 'status-cancelled' : ''}">
       <td>${fmt(b.starts_at)}</td>
       <td>${b.services?.name || '—'}${b.num_people > 1 ? `<br><span style="color:var(--ink-soft)">${b.num_people} people</span>` : ''}${b.total_price_pence != null ? `<br><span style="color:var(--ink-soft)">£${(b.total_price_pence / 100).toFixed(2)}</span>` : ''}</td>
       <td>${escapeHtml(b.customer_name)}<br><span style="color:var(--ink-soft)">${escapeHtml(b.customer_email)}</span>${b.customer_phone ? `<br><span style="color:var(--ink-soft)">${escapeHtml(b.customer_phone)}</span>` : ''}</td>
       <td>${b.notes ? escapeHtml(b.notes) : '—'}</td>
-      <td>${b.status === 'confirmed' ? `<button class="cancel-btn" data-id="${b.id}">Cancel</button>` : 'Cancelled'}</td>
+      <td>${b.status === 'confirmed' ? `<button class="cancel-btn" data-id="${b.id}">Cancel</button>` : (b.status === 'denied' ? 'Denied' : 'Cancelled')}</td>
     </tr>
   `).join('');
 
@@ -119,10 +124,134 @@ async function cancelBooking(id) {
   loadBookings();
 }
 
+document.getElementById('clear-cancelled-btn').addEventListener('click', async () => {
+  if (!confirm('Permanently delete all cancelled and denied bookings? This cannot be undone.')) return;
+  const btn = document.getElementById('clear-cancelled-btn');
+  btn.disabled = true;
+  const { error } = await db.from('bookings').delete().in('status', ['cancelled', 'denied']);
+  btn.disabled = false;
+  if (error) {
+    alert('Could not clear: ' + error.message);
+    return;
+  }
+  loadBookings();
+});
+
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// ============================================================
+// Requests: pending bookings awaiting admin confirm/deny.
+// ============================================================
+
+async function loadRequests() {
+  const container = document.getElementById('requests-list');
+  container.innerHTML = `<p class="loading">Loading requests…</p>`;
+
+  // Pending requests, plus all confirmed bookings (needed to detect
+  // conflicts before the admin confirms a request).
+  const [pendingRes, confirmedRes] = await Promise.all([
+    db.from('bookings')
+      .select('id, customer_name, customer_email, customer_phone, starts_at, ends_at, num_people, total_price_pence, notes, services(name)')
+      .eq('status', 'pending')
+      .order('starts_at', { ascending: true }),
+    db.from('bookings')
+      .select('id, starts_at, ends_at')
+      .eq('status', 'confirmed'),
+  ]);
+
+  if (pendingRes.error) {
+    container.innerHTML = `<p class="no-slots">Error loading requests: ${pendingRes.error.message}</p>`;
+    return;
+  }
+
+  const requests = pendingRes.data;
+  const confirmed = confirmedRes.data || [];
+
+  const badge = document.getElementById('requests-count-badge');
+  if (requests.length) {
+    badge.textContent = requests.length;
+    badge.hidden = false;
+  } else {
+    badge.hidden = true;
+  }
+
+  if (!requests.length) {
+    container.innerHTML = `<p class="no-slots">No pending requests.</p>`;
+    return;
+  }
+
+  const overlaps = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && aEnd > bStart;
+
+  container.innerHTML = requests.map(r => {
+    const rStart = new Date(r.starts_at);
+    const rEnd = new Date(r.ends_at);
+
+    // Conflicts with an already-confirmed booking.
+    const confirmedConflict = confirmed.some(c => overlaps(rStart, rEnd, new Date(c.starts_at), new Date(c.ends_at)));
+
+    // Conflicts with another pending request (excluding itself).
+    const pendingConflict = requests.some(o => o.id !== r.id && overlaps(rStart, rEnd, new Date(o.starts_at), new Date(o.ends_at)));
+
+    let conflictHtml = '';
+    if (confirmedConflict) {
+      conflictHtml = `<div class="request-conflict">⚠ Overlaps a booking that's already confirmed. Confirming this will fail.</div>`;
+    } else if (pendingConflict) {
+      conflictHtml = `<div class="request-conflict">⚠ Overlaps another pending request — confirming one will make the other unconfirmable.</div>`;
+    }
+
+    const peopleLine = r.num_people > 1 ? ` · ${r.num_people} people` : '';
+    const priceLine = r.total_price_pence != null ? ` · £${(r.total_price_pence / 100).toFixed(2)}` : '';
+
+    return `
+      <div class="request-card" data-id="${r.id}">
+        <div class="request-when">${fmt(r.starts_at)}</div>
+        <div class="request-meta">${r.services?.name || '—'}${peopleLine}${priceLine}<br>${escapeHtml(r.customer_name)} · ${escapeHtml(r.customer_email)}${r.customer_phone ? ' · ' + escapeHtml(r.customer_phone) : ''}${r.notes ? '<br>' + escapeHtml(r.notes) : ''}</div>
+        ${conflictHtml}
+        <div class="request-actions">
+          <button class="confirm-btn" data-id="${r.id}">Confirm</button>
+          <button class="deny-btn" data-id="${r.id}">Deny</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.confirm-btn').forEach(btn => {
+    btn.addEventListener('click', () => confirmRequest(btn.dataset.id));
+  });
+  container.querySelectorAll('.deny-btn').forEach(btn => {
+    btn.addEventListener('click', () => denyRequest(btn.dataset.id));
+  });
+}
+
+async function confirmRequest(id) {
+  const card = document.querySelector(`.request-card[data-id="${id}"]`);
+  card.querySelectorAll('button').forEach(b => b.disabled = true);
+
+  const { error } = await db.rpc('confirm_booking', { p_booking_id: id });
+  if (error) {
+    alert('Could not confirm: ' + error.message);
+    card.querySelectorAll('button').forEach(b => b.disabled = false);
+    return;
+  }
+  loadRequests();
+}
+
+async function denyRequest(id) {
+  if (!confirm('Deny this request? The customer will be notified by email.')) return;
+  const card = document.querySelector(`.request-card[data-id="${id}"]`);
+  card.querySelectorAll('button').forEach(b => b.disabled = true);
+
+  const { error } = await db.rpc('deny_booking', { p_booking_id: id });
+  if (error) {
+    alert('Could not deny: ' + error.message);
+    card.querySelectorAll('button').forEach(b => b.disabled = false);
+    return;
+  }
+  loadRequests();
 }
 
 // ============================================================
@@ -181,6 +310,8 @@ async function loadAvailabilityDay() {
   document.getElementById('avail-current-date').textContent = formatDateHeading(availDate);
 
   const dateStr = isoDate(availDate);
+  const todayStr = isoDate(startOfToday());
+  document.getElementById('avail-prev-day').disabled = dateStr <= todayStr;
 
   const [closedRes, blockedRes] = await Promise.all([
     db.from('closed_dates').select('date').eq('date', dateStr),
@@ -235,7 +366,10 @@ document.getElementById('block-whole-day').addEventListener('change', (e) => {
 });
 
 document.getElementById('avail-prev-day').addEventListener('click', () => {
-  availDate = new Date(availDate.getTime() - 24 * 3600 * 1000);
+  const todayStr = isoDate(startOfToday());
+  const prev = new Date(availDate.getTime() - 24 * 3600 * 1000);
+  if (isoDate(prev) < todayStr) return;
+  availDate = prev;
   loadAvailabilityDay();
 });
 
